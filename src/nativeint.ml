@@ -1,0 +1,358 @@
+open! Import
+open! Stdlib.Nativeint
+module Float = Float0
+module Sexp = Sexp0
+include Nativeint_replace_polymorphic_compare
+
+module T = struct
+  module T0 = struct
+    type t = nativeint
+
+    include struct
+      let _ = fun (_ : t) -> ()
+      let globalize : t -> t = globalize_nativeint
+      let _ = globalize
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        hash_fold_nativeint
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value = fun x -> hash_nativeint x
+
+      let _ = hash_fold_t
+      and _ = hash
+
+      let t_of_sexp = (nativeint_of_sexp : Sexplib0.Sexp.t -> t)
+      let _ = t_of_sexp
+      let t_sexp_grammar : t Sexplib0.Sexp_grammar.t = nativeint_sexp_grammar
+      let _ = t_sexp_grammar
+    end [@@merlin.hide]
+
+    let t_u_of_sexp sexp = Nativeint_u.unbox (t_of_sexp sexp)
+    let to_string = Integer_to_string.nativeint_to_string
+  end
+
+  include T0
+  include Int_string_conversions.Make (T0)
+  include Provide_unboxed (Nativeint_u)
+
+  let hashable : t Hashable.t = { hash; compare; sexp_of_t }
+  let compare = Nativeint_replace_polymorphic_compare.compare
+
+  external format : string -> nativeint -> string = "caml_nativeint_format"
+
+  external of_string
+    :  string
+    -> (t[@unboxed])
+    = "caml_nativeint_of_string" "caml_nativeint_of_string_unboxed"
+
+  let of_string_opt s =
+    try Some (of_string s) with
+    | Failure _ -> None
+  ;;
+end
+
+include T
+include Comparator.Make (T)
+
+include Comparable.With_zero (struct
+    include T
+
+    let zero = zero
+  end)
+
+module Conv = Int_conversions
+
+include Int_string_conversions.Make_hex (struct
+    open Nativeint_replace_polymorphic_compare
+
+    type t = nativeint
+
+    include struct
+      let _ = fun (_ : t) -> ()
+      let compare = (compare_nativeint : t -> (t[@merlin.hide]) -> int)
+      let _ = compare
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        hash_fold_nativeint
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value = fun x -> hash_nativeint x
+
+      let _ = hash_fold_t
+      and _ = hash
+    end [@@merlin.hide]
+
+    let zero = zero
+
+    external neg : t -> t = "%nativeint_neg"
+
+    let ( < ) = ( < )
+    let to_string i = format "%nx" i
+    let of_string s = Stdlib.Scanf.sscanf s "%nx" Fn.id
+    let module_name = "Base.Nativeint.Hex"
+  end)
+
+include Pretty_printer.Register (struct
+    type nonrec t = t
+
+    let to_string = to_string
+    let module_name = "Base.Nativeint"
+  end)
+
+open! Nativeint_replace_polymorphic_compare
+
+let invariant (_ : t) = ()
+let num_bits = of_int (Word_size.num_bits Word_size.word_size)
+let float_lower_bound = Float.lower_bound_for_int (to_int num_bits)
+let float_upper_bound = Float.upper_bound_for_int (to_int num_bits)
+
+external shift_right_logical : t -> int -> t = "%nativeint_lsr"
+external shift_right : t -> int -> t = "%nativeint_asr"
+external shift_left : t -> int -> t = "%nativeint_lsl"
+external bit_xor : t -> t -> t = "%nativeint_xor"
+external bit_or : t -> t -> t = "%nativeint_or"
+external bit_and : t -> t -> t = "%nativeint_and"
+
+let bit_not n = bit_xor n (-1n)
+let min_value = min_int
+let max_value = max_int
+
+external neg : t -> t = "%nativeint_neg"
+
+let abs = abs
+let abs_local n = if n >= 0n then n else neg n
+
+external ( / ) : t -> t -> t = "%nativeint_div"
+external ( * ) : t -> t -> t = "%nativeint_mul"
+external ( - ) : t -> t -> t = "%nativeint_sub"
+external ( + ) : t -> t -> t = "%nativeint_add"
+
+let pred n = n - 1n
+let succ n = n + 1n
+
+external rem : t -> t -> t = "%nativeint_mod"
+
+let minus_one = minus_one
+let one = one
+let zero = zero
+
+external to_float
+  :  t
+  -> float
+  = "caml_nativeint_to_float" "caml_nativeint_to_float_unboxed"
+[@@unboxed] [@@noalloc]
+
+external of_float_unchecked
+  :  float
+  -> t
+  = "caml_nativeint_of_float" "caml_nativeint_of_float_unboxed"
+[@@unboxed] [@@noalloc]
+
+let of_float f =
+  if Float_replace_polymorphic_compare.( >= ) f float_lower_bound
+     && Float_replace_polymorphic_compare.( <= ) f float_upper_bound
+  then of_float_unchecked f
+  else
+    Printf.invalid_argf
+      "Nativeint.of_float: argument (%f) is out of range or NaN"
+      (Float.box f)
+      ()
+;;
+
+let of_int_exn = of_int
+let to_int = Conv.nativeint_to_int
+let to_int_exn = Conv.nativeint_to_int_exn
+let to_int_trunc = Conv.nativeint_to_int_trunc
+let ( ~- ) = neg
+let pow b e = of_int_exn (Int_math.Private.int_pow (to_int_exn b) (to_int_exn e))
+let ( ** ) b e = pow b e
+
+module Pre_O = struct
+  let ( + ) = ( + )
+  let ( - ) = ( - )
+  let ( * ) = ( * )
+  let ( / ) = ( / )
+  let ( ~- ) = ( ~- )
+  let ( ** ) = ( ** )
+
+  include Nativeint_replace_polymorphic_compare
+
+  let abs = abs
+  let abs_local = abs_local
+  let neg = neg
+  let zero = zero
+  let of_int_exn = of_int_exn
+end
+
+module O = struct
+  include Pre_O
+
+  include Int_math.Make (struct
+      type nonrec t = t
+
+      let globalize = globalize
+
+      include Pre_O
+
+      let rem = rem
+      let to_float = to_float
+      let of_float = of_float
+      let of_string = T.of_string
+      let to_string = T.to_string
+    end)
+
+  let ( land ) = bit_and
+  let ( lor ) = bit_or
+  let ( lxor ) = bit_xor
+  let lnot = bit_not
+  let ( lsl ) = shift_left
+  let ( asr ) = shift_right
+  let ( lsr ) = shift_right_logical
+end
+
+include O
+
+module Pow2 = struct
+  let non_positive_argument () = invalid_arg "argument must be strictly positive"
+
+  external ( land ) : t -> t -> t = "%nativeint_and"
+
+  let ceil_pow2 (x : nativeint) =
+    if x <= 0n then non_positive_argument ();
+    let x = x - 1n in
+    let x = x lor (x lsr 1) in
+    let x = x lor (x lsr 2) in
+    let x = x lor (x lsr 4) in
+    let x = x lor (x lsr 8) in
+    let x = x lor (x lsr 16) in
+    let x = x lor (x lsr 32) in
+    x + 1n
+  ;;
+
+  let floor_pow2 x =
+    if x <= 0n then non_positive_argument ();
+    let x = x lor (x lsr 1) in
+    let x = x lor (x lsr 2) in
+    let x = x lor (x lsr 4) in
+    let x = x lor (x lsr 8) in
+    let x = x lor (x lsr 16) in
+    let x = x lor (x lsr 32) in
+    x - (x lsr 1)
+  ;;
+
+  let is_pow2 x =
+    if x <= 0n then non_positive_argument ();
+    x land (x - 1n) = 0n
+  ;;
+
+  let clz = Ocaml_intrinsics_kernel.Nativeint.count_leading_zeros
+  let ctz = Ocaml_intrinsics_kernel.Nativeint.count_trailing_zeros
+
+  let floor_log2 i =
+    if i <= 0n then invalid_arg ("Nativeint.floor_log2: " ^ to_string i);
+    num_bits - 1n - clz i
+  ;;
+
+  let ceil_log2 i =
+    if i <= 0n then invalid_arg ("Nativeint.ceil_log2: " ^ to_string i);
+    if i = 1n
+    then 0n
+    else (
+      let i = i - 1n in
+      num_bits - clz i)
+  ;;
+end
+
+include Pow2
+
+let between t ~low ~high = low <= t && t <= high
+let clamp_unchecked t ~min:min_ ~max:max_ = max min_ (min t max_)
+
+let clamp_exn t ~min ~max =
+  assert (min <= max);
+  clamp_unchecked t ~min ~max
+;;
+
+let clamp t ~min ~max =
+  if min > max
+  then
+    Or_error.error_s
+      (Sexp.message
+         "clamp requires [min <= max]"
+         [ "min", T.sexp_of_t min; "max", T.sexp_of_t max ])
+  else Ok (clamp_unchecked t ~min ~max)
+;;
+
+let incr r = r := !r + one
+let decr r = r := !r - one
+
+external of_nativeint : t -> t = "%identity"
+external to_nativeint : t -> t = "%identity"
+
+let of_nativeint_exn = of_nativeint
+let to_nativeint_exn = to_nativeint
+let of_local_nativeint_exn = of_nativeint
+let to_local_nativeint_exn = to_nativeint
+let popcount = Popcount.nativeint_popcount
+
+external of_int : int -> t = "%nativeint_of_int"
+external of_int32 : int32 -> t = "%nativeint_of_int32"
+
+let of_int32_exn = of_int32
+let of_local_int32_exn = of_int32
+let to_int32 = Conv.nativeint_to_int32
+let to_local_int32_exn = Conv.nativeint_to_int32_exn
+let to_int32_exn t = globalize_int32 (to_local_int32_exn t) [@nontail]
+
+external to_int32_trunc : t -> int32 = "%nativeint_to_int32"
+
+let of_int64 = Conv.int64_to_nativeint
+let of_local_int64_exn = Conv.int64_to_nativeint_exn
+let of_int64_exn i = globalize (of_local_int64_exn i) [@nontail]
+
+external of_int64_trunc : int64 -> nativeint = "%int64_to_nativeint"
+
+let to_int64 = Conv.nativeint_to_int64
+let to_local_int64 = Conv.nativeint_to_int64
+
+include Int_string_conversions.Make_binary (struct
+    type t = nativeint
+
+    include struct
+      let _ = fun (_ : t) -> ()
+      let compare = (compare_nativeint : t -> (t[@merlin.hide]) -> int)
+      let _ = compare
+      let equal = (equal_nativeint : t -> (t[@merlin.hide]) -> bool)
+      let _ = equal
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        hash_fold_nativeint
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value = fun x -> hash_nativeint x
+
+      let _ = hash_fold_t
+      and _ = hash
+    end [@@merlin.hide]
+
+    let ( land ) = ( land )
+
+    external ( lsr ) : t -> int -> t = "%nativeint_lsr"
+
+    let clz = clz
+    let num_bits = num_bits
+    let one = one
+    let to_int_trunc = to_int_trunc
+    let zero = zero
+    let ( - ) = ( - )
+  end)
+
+module Summable = struct
+  type nonrec t = t
+
+  let zero = zero
+  let ( + ) x y = x + y
+  let ( - ) x y = x - y
+end
+
+include Nativeint_replace_polymorphic_compare
+
+external bswap : t -> t = "%bswap_native"

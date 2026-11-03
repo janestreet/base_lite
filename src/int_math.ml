@@ -1,0 +1,167 @@
+open! Import0
+
+let invalid_argf = Printf.invalid_argf
+let negative_exponent () = Printf.invalid_argf "exponent can not be negative" ()
+let overflow () = Printf.invalid_argf "integer overflow in pow" ()
+
+external int_math_int_pow : int -> int -> int = "Base_int_math_int_pow_stub" [@@noalloc]
+
+external int_math_int64_pow
+  :  int64
+  -> int64
+  -> int64
+  = "Base_int_math_int64_pow_stub" "Base_int_math_int64_pow_stub_unboxed"
+[@@unboxed] [@@noalloc]
+
+let int_pow base exponent =
+  if exponent < 0 then negative_exponent ();
+  if abs base > 1
+     && (exponent > 63
+         || abs base
+            > ((let open Portability_hacks.Cross.Contended in
+                cross (iarray infer))
+                 Pow_overflow_bounds.int_positive_overflow_bounds).:(exponent))
+  then overflow ();
+  int_math_int_pow base exponent
+;;
+
+module Int64_with_comparisons = struct
+  include Stdlib.Int64
+
+  external ( < ) : int64 -> int64 -> bool = "%lessthan"
+  external ( > ) : int64 -> int64 -> bool = "%greaterthan"
+  external ( >= ) : int64 -> int64 -> bool = "%greaterequal"
+  external neg : int64 -> int64 = "%int64_neg"
+
+  let abs_local n = if n >= 0L then n else neg n
+end
+
+let int64_pow base exponent =
+  let open Int64_with_comparisons in
+  if exponent < 0L then negative_exponent ();
+  if (base > 1L || base < -1L)
+     && (exponent > 63L
+         || (base >= 0L
+             && base
+                > ((let open Portability_hacks.Cross.Contended in
+                    cross (iarray infer))
+                     Pow_overflow_bounds.int64_positive_overflow_bounds).:(to_int exponent)
+            )
+         || (base < 0L
+             && base
+                < ((let open Portability_hacks.Cross.Contended in
+                    cross (iarray infer))
+                     Pow_overflow_bounds.int64_negative_overflow_bounds).:(to_int exponent)
+            ))
+  then overflow ();
+  int_math_int64_pow base exponent
+;;
+
+let int63_pow_on_int64 base exponent =
+  let open Int64_with_comparisons in
+  if exponent < 0L then negative_exponent ();
+  if abs_local base > 1L
+     && (exponent > 63L
+         || abs_local base
+            > ((let open Portability_hacks.Cross.Contended in
+                cross (iarray infer))
+                 Pow_overflow_bounds.int63_on_int64_positive_overflow_bounds).:(to_int
+                                                                                  exponent)
+        )
+  then overflow ();
+  int_math_int64_pow base exponent
+;;
+
+module type Make_arg = sig
+  type t
+
+  val globalize : t -> t
+
+  include Floatable.S_local_input with type t := t
+  include Stringable.S with type t := t
+
+  val ( + ) : t -> t -> t
+  val ( - ) : t -> t -> t
+  val ( * ) : t -> t -> t
+  val ( / ) : t -> t -> t
+  val ( ~- ) : t -> t
+  val ( <> ) : t -> t -> bool
+  val ( <= ) : t -> t -> bool
+  val ( >= ) : t -> t -> bool
+  val ( = ) : t -> t -> bool
+  val ( < ) : t -> t -> bool
+  val ( > ) : t -> t -> bool
+  val abs : t -> t
+  val neg : t -> t
+  val zero : t
+  val of_int_exn : int -> t
+  val rem : t -> t -> t
+end
+
+module Make (X : Make_arg) = struct
+  open X
+
+  let ( % ) x y =
+    if y <= zero
+    then
+      invalid_argf
+        "%s %% %s in core_int.ml: modulus should be positive"
+        (to_string (globalize x))
+        (to_string (globalize y))
+        ();
+    let rval = X.rem x y in
+    if rval < zero then rval + y else rval
+  ;;
+
+  let ( /% ) x y =
+    if y <= zero
+    then
+      invalid_argf
+        "%s /%% %s in core_int.ml: divisor should be positive"
+        (to_string (globalize x))
+        (to_string (globalize y))
+        ();
+    let offset = of_int_exn (bool_to_int (x < zero)) in
+    ((x + offset) / y) - offset
+  ;;
+
+  let ( // ) x y = to_float x /. to_float y
+  let round_down i ~to_multiple_of:modulus = i - (i % modulus)
+
+  let round_up i ~to_multiple_of:modulus =
+    let remainder = i % modulus in
+    if remainder = zero then i + zero else i + modulus - remainder
+  ;;
+
+  let round_towards_zero i ~to_multiple_of =
+    if i = zero
+    then zero
+    else if i > zero
+    then round_down i ~to_multiple_of
+    else round_up i ~to_multiple_of
+  ;;
+
+  let round_nearest i ~to_multiple_of:modulus =
+    let remainder = i % modulus in
+    let modulus_minus_remainder = modulus - remainder in
+    if modulus_minus_remainder <= remainder
+    then i + modulus_minus_remainder
+    else i - remainder
+  ;;
+
+  let round ?(dir = `Nearest) i ~to_multiple_of =
+    match dir with
+    | `Nearest -> round_nearest i ~to_multiple_of
+    | `Down -> round_down i ~to_multiple_of
+    | `Up -> round_up i ~to_multiple_of
+    | `Zero -> round_towards_zero i ~to_multiple_of
+  ;;
+end
+
+module Private = struct
+  let int_pow = int_pow
+  let int64_pow = int64_pow
+  let int63_pow_on_int64 = int63_pow_on_int64
+
+  module Pow_overflow_bounds = Pow_overflow_bounds
+end

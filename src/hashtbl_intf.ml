@@ -1,0 +1,472 @@
+open! Import0
+module Option = Option0
+module Sexp = Sexp0
+
+module Definitions = struct
+  module Key = struct
+    module type S = sig
+      type t
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        val sexp_of_t : t -> Sexplib0.Sexp.t
+      end
+      [@@merlin.hide]
+
+      val compare : t -> t -> int
+      val hash : t -> int
+    end
+
+    type 'a t = (module S with type t = 'a)
+  end
+
+  module Merge_into_action = Dictionary_mutable.Merge_into_action
+
+  module type Accessors = sig
+    type ('a, 'b) t
+    type 'a key
+
+    include sig
+      include
+        Dictionary_mutable.Accessors
+        with type 'key key := 'key key
+         and type ('key, 'data, _) t := ('key, 'data) t
+         and type ('fn, _, _, _) accessor := 'fn
+
+      val find_and_remove_or_null : 'k 'v. ('k, 'v) t -> 'k key -> 'v or_null
+    end
+
+    val sexp_of_key : ('a, _) t -> 'a key -> Sexp.t
+    val capacity : _ t -> int
+    val growth_allowed : _ t -> bool
+    val choose : ('a, 'b) t -> ('a key * 'b) option
+    val choose_local : ('a, 'b) t -> ('a key Modes.Global.t * 'b Modes.Global.t) option
+    val choose_exn : ('a, 'b) t -> 'a key * 'b
+
+    val choose_randomly
+      :  ?random_state:Random.State.t
+      -> ('a, 'b) t
+      -> ('a key * 'b) option
+
+    val choose_randomly_exn : ?random_state:Random.State.t -> ('a, 'b) t -> 'a key * 'b
+    val find_or_null : 'a 'b. ('a, 'b) t -> 'a key -> 'b or_null
+
+    val find_and_call1
+      : 'a 'b 'c 'd.
+      ('a, 'b) t
+      -> 'a key
+      -> a:'d
+      -> if_found:('b -> 'd -> 'c)
+      -> if_not_found:('a key -> 'd -> 'c)
+      -> 'c
+
+    val find_and_call2
+      : 'a 'b 'c 'd 'e.
+      ('a, 'b) t
+      -> 'a key
+      -> a:'d
+      -> b:'e
+      -> if_found:('b -> 'd -> 'e -> 'c)
+      -> if_not_found:('a key -> 'd -> 'e -> 'c)
+      -> 'c
+
+    val findi_and_call1
+      : 'a 'b 'c 'd.
+      ('a, 'b) t
+      -> 'a key
+      -> a:'d
+      -> if_found:(key:'a key -> data:'b -> 'd -> 'c)
+      -> if_not_found:('a key -> 'd -> 'c)
+      -> 'c
+
+    val findi_and_call2
+      : 'a 'b 'c 'd 'e.
+      ('a, 'b) t
+      -> 'a key
+      -> a:'d
+      -> b:'e
+      -> if_found:(key:'a key -> data:'b -> 'd -> 'e -> 'c)
+      -> if_not_found:('a key -> 'd -> 'e -> 'c)
+      -> 'c
+
+    val change_or_null : ('a, 'b) t -> 'a key -> f:('b or_null -> 'b or_null) -> unit
+    val update_or_null : ('a, 'b) t -> 'a key -> f:('b or_null -> 'b) -> unit
+    val update_or_null_and_return : ('a, 'b) t -> 'a key -> f:('b or_null -> 'b) -> 'b
+    val equal : ('b -> 'b -> bool) -> ('a, 'b) t -> ('a, 'b) t -> bool
+    val similar : ('b1 -> 'b2 -> bool) -> ('a, 'b1) t -> ('a, 'b2) t -> bool
+  end
+
+  module type Multi = sig
+    type ('a, 'b) t
+    type 'a key
+
+    val add_multi : ('a, 'b list) t -> key:'a key -> data:'b -> unit
+    val remove_multi : ('a, _ list) t -> 'a key -> unit
+    val find_multi : 'a 'b. ('a, 'b list) t -> 'a key -> 'b list
+  end
+
+  type ('key, 'data, 'z) create_options =
+    ?growth_allowed:bool -> ?size:int -> 'key Key.t -> 'z
+
+  type ('key, 'data, 'z) create_options_without_first_class_module =
+    ?growth_allowed:bool -> ?size:int -> 'z
+
+  module type Creators_generic = sig
+    type ('a, 'b) t
+    type 'a key
+    type ('key, 'data, 'z) create_options
+
+    include
+      Dictionary_mutable.Creators
+      with type 'key key := 'key key
+       and type ('key, 'data, _) t := ('key, 'data) t
+       and type ('fn, 'key, 'data, _) creator := ('key key, 'data, 'fn) create_options
+  end
+
+  module type Creators = sig
+    type ('a, 'b) t
+
+    val create : 'a 'b. ?growth_allowed:bool -> ?size:int -> 'a Key.t -> ('a, 'b) t
+
+    val of_alist
+      : 'a 'b.
+      ?growth_allowed:bool
+      -> ?size:int
+      -> 'a Key.t
+      -> ('a * 'b) list
+      -> [ `Ok of ('a, 'b) t | `Duplicate_key of 'a ]
+
+    val of_alist_report_all_dups
+      : 'a 'b.
+      ?growth_allowed:bool
+      -> ?size:int
+      -> 'a Key.t
+      -> ('a * 'b) list
+      -> [ `Ok of ('a, 'b) t | `Duplicate_keys of 'a list ]
+
+    val of_alist_or_error
+      : 'a 'b.
+      ?growth_allowed:bool
+      -> ?size:int
+      -> 'a Key.t
+      -> ('a * 'b) list
+      -> ('a, 'b) t Or_error.t
+
+    val of_alist_exn
+      : 'a 'b.
+      ?growth_allowed:bool -> ?size:int -> 'a Key.t -> ('a * 'b) list -> ('a, 'b) t
+
+    val of_alist_multi
+      : 'a 'b.
+      ?growth_allowed:bool -> ?size:int -> 'a Key.t -> ('a * 'b) list -> ('a, 'b list) t
+
+    val create_mapped
+      : 'a 'b 'r.
+      ?growth_allowed:bool
+      -> ?size:int
+      -> 'a Key.t
+      -> get_key:('r -> 'a)
+      -> get_data:('r -> 'b)
+      -> 'r list
+      -> [ `Ok of ('a, 'b) t | `Duplicate_keys of 'a list ]
+
+    val create_with_key
+      : 'a 'r.
+      ?growth_allowed:bool
+      -> ?size:int
+      -> 'a Key.t
+      -> get_key:('r -> 'a)
+      -> 'r list
+      -> [ `Ok of ('a, 'r) t | `Duplicate_keys of 'a list ]
+
+    val create_with_key_or_error
+      : 'a 'r.
+      ?growth_allowed:bool
+      -> ?size:int
+      -> 'a Key.t
+      -> get_key:('r -> 'a)
+      -> 'r list
+      -> ('a, 'r) t Or_error.t
+
+    val create_with_key_exn
+      : 'a 'r.
+      ?growth_allowed:bool
+      -> ?size:int
+      -> 'a Key.t
+      -> get_key:('r -> 'a)
+      -> 'r list
+      -> ('a, 'r) t
+
+    val group
+      : 'a 'b 'r.
+      ?growth_allowed:bool
+      -> ?size:int
+      -> 'a Key.t
+      -> get_key:('r -> 'a)
+      -> get_data:('r -> 'b)
+      -> combine:('b -> 'b -> 'b)
+      -> 'r list
+      -> ('a, 'b) t
+  end
+
+  module type S_without_submodules = sig
+    val hash : 'a -> int
+    val hash_param : int -> int -> 'a -> int
+
+    type (!'a, !'b) t
+
+    val sexp_of_t : ('a -> Sexp.t) -> ('b -> Sexp.t) -> ('a, 'b) t -> Sexp.t
+
+    include Creators with type ('a, 'b) t := ('a, 'b) t
+    include Accessors with type ('a, 'b) t := ('a, 'b) t with type 'a key = 'a
+    include Multi with type ('a, 'b) t := ('a, 'b) t with type 'a key := 'a key
+
+    val hashable_s : ('key, _) t -> 'key Key.t
+
+    include Invariant.S2 with type ('a, 'b) t := ('a, 'b) t
+  end
+
+  module type S_poly = sig
+    type ('a, 'b) t
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Sexplib0.Sexpable.S2 with type ('a, 'b) t := ('a, 'b) t
+
+      val t_sexp_grammar
+        : 'a 'b.
+        'a Sexplib0.Sexp_grammar.t
+        -> 'b Sexplib0.Sexp_grammar.t
+        -> ('a, 'b) t Sexplib0.Sexp_grammar.t
+    end
+    [@@merlin.hide]
+
+    val hashable : 'a Hashable.t
+
+    include Invariant.S2 with type ('a, 'b) t := ('a, 'b) t
+
+    include
+      Creators_generic
+      with type ('a, 'b) t := ('a, 'b) t
+      with type 'a key = 'a
+      with type ('key, 'data, 'z) create_options :=
+        ('key, 'data, 'z) create_options_without_first_class_module
+
+    include Accessors with type ('a, 'b) t := ('a, 'b) t with type 'a key := 'a key
+    include Multi with type ('a, 'b) t := ('a, 'b) t with type 'a key := 'a key
+  end
+
+  module type For_deriving = sig
+    type ('k, 'v) t
+
+    module type Sexp_of_m = sig
+      type t
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        val sexp_of_t : t -> Sexplib0.Sexp.t
+      end
+      [@@merlin.hide]
+    end
+
+    module type M_of_sexp = sig
+      type t
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        val t_of_sexp : Sexplib0.Sexp.t -> t
+      end
+      [@@merlin.hide]
+
+      include Key.S with type t := t
+    end
+
+    module type M_sexp_grammar = sig
+      type t
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        val t_sexp_grammar : t Sexplib0.Sexp_grammar.t
+      end
+      [@@merlin.hide]
+    end
+
+    module type Equal_m = sig end
+
+    val sexp_of_m__t
+      :  (module Sexp_of_m with type t = 'k)
+      -> ('v -> Sexp.t)
+      -> ('k, 'v) t
+      -> Sexp.t
+
+    val m__t_of_sexp
+      :  (module M_of_sexp with type t = 'k)
+      -> (Sexp.t -> 'v)
+      -> Sexp.t
+      -> ('k, 'v) t
+
+    val m__t_sexp_grammar
+      :  (module M_sexp_grammar with type t = 'k)
+      -> 'v Sexplib0.Sexp_grammar.t
+      -> ('k, 'v) t Sexplib0.Sexp_grammar.t
+
+    val equal_m__t
+      :  (module Equal_m)
+      -> ('v -> 'v -> bool)
+      -> ('k, 'v) t
+      -> ('k, 'v) t
+      -> bool
+  end
+
+  module type Non_value = sig
+    include sig
+      type (!'a, !'b) t
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        val sexp_of_t
+          : 'a 'b.
+          ('a -> Sexplib0.Sexp.t)
+          -> ('b -> Sexplib0.Sexp.t)
+          -> ('a, 'b) t
+          -> Sexplib0.Sexp.t
+      end
+      [@@merlin.hide]
+
+      type (!'a, !'b) t := ('a, 'b) t
+      type (!'a, !'b) t := ('a, 'b) t
+      type 'a key := 'a Key.t
+
+      val create : 'a 'b. ?growth_allowed:bool -> ?size:int -> 'a key -> ('a, 'b) t
+
+      val singleton
+        : 'k 'v.
+        ?growth_allowed:bool -> ?size:int -> 'k key -> 'k -> 'v -> ('k, 'v) t
+
+      val length : 'k 'v. ('k, 'v) t -> int
+      val capacity : 'k 'v. ('k, 'v) t -> int
+      val growth_allowed : 'k 'v. ('k, 'v) t -> bool
+      val is_empty : 'k 'v. ('k, 'v) t -> bool
+      val add_exn : 'k 'v. ('k, 'v) t -> key:'k -> data:'v -> unit
+      val add : 'k 'v. ('k, 'v) t -> key:'k -> data:'v -> [ `Ok | `Duplicate ]
+      val find : 'k 'v. ('k, 'v) t -> 'k -> 'v Option.t
+      val find_exn : 'k 'v. ('k, 'v) t -> 'k -> 'v
+      val find_and_remove : 'k 'v. ('k, 'v) t -> 'k -> 'v Option.t
+      val remove : 'k 'v. ('k, 'v) t -> 'k -> unit
+      val mem : 'k 'v. ('k, 'v) t -> 'k -> bool
+      val set : 'k 'v. ('k, 'v) t -> key:'k -> data:'v -> unit
+      val clear : 'k 'v. ('k, 'v) t -> unit
+
+      val find_and_call
+        : 'k 'v 'a.
+        ('k, 'v) t -> 'k -> if_found:('v -> 'a) -> if_not_found:('k -> 'a) -> 'a
+
+      val find_and_call1
+        : 'k 'v 'a 'r.
+        ('k, 'v) t
+        -> 'k
+        -> a:'a
+        -> if_found:('v -> 'a -> 'r)
+        -> if_not_found:('k -> 'a -> 'r)
+        -> 'r
+
+      val update : 'k 'v. ('k, 'v) t -> 'k -> f:('v Option.t -> 'v) -> unit
+      val update_and_return : 'k 'v. ('k, 'v) t -> 'k -> f:('v Option.t -> 'v) -> 'v
+      val filter_inplace : 'k 'v. ('k, 'v) t -> f:('v -> bool) -> unit
+      val filteri_inplace : 'k 'v. ('k, 'v) t -> f:(key:'k -> data:'v -> bool) -> unit
+      val filter_keys_inplace : 'k 'v. ('k, 'v) t -> f:('k -> bool) -> unit
+      val mapi_inplace : 'k 'v. ('k, 'v) t -> f:(key:'k -> data:'v -> 'v) -> unit
+      val map_inplace : 'k 'v. ('k, 'v) t -> f:('v -> 'v) -> unit
+      val filter_map_inplace : 'k 'v. ('k, 'v) t -> f:('v -> 'v Option.t) -> unit
+
+      val filter_mapi_inplace
+        : 'k 'v.
+        ('k, 'v) t -> f:(key:'k -> data:'v -> 'v Option.t) -> unit
+
+      val change : ('k, 'v) t -> 'k -> f:('v Option.t -> 'v Option.t) -> unit
+
+      val fold
+        : 'k 'v 'acc.
+        ('k, 'v) t -> init:'acc -> f:(key:'k -> data:'v -> 'acc -> 'acc) -> 'acc
+
+      val iter : 'k 'v. ('k, 'v) t -> f:('v -> unit) -> unit
+      val iter_keys : 'k 'v. ('k, 'v) t -> f:('k -> unit) -> unit
+      val iteri : 'k 'v. ('k, 'v) t -> f:(key:'k -> data:'v -> unit) -> unit
+      val find_or_add : 'k 'v. ('k, 'v) t -> 'k -> default:(unit -> 'v) -> 'v
+      val findi_or_add : 'k 'v. ('k, 'v) t -> 'k -> default:('k -> 'v) -> 'v
+      val keys : 'k 'v. ('k, 'v) t -> 'k List.t
+      val data : 'k 'v. ('k, 'v) t -> 'v List.t
+      val choose_exn : 'k 'v. ('k, 'v) t -> 'k * 'v
+      val invariant : 'k 'v. ('k -> unit) -> ('v -> unit) -> ('k, 'v) t -> unit
+    end
+
+    include sig
+      val add_multi : 'k 'v. ('k, 'v List.t) t -> key:'k -> data:'v -> unit
+      val remove_multi : 'k 'v. ('k, 'v List.t) t -> 'k -> unit
+      val find_multi : 'k 'v. ('k, 'v List.t) t -> 'k -> 'v List.t
+      val map : 'k 'v 'w. ('k, 'v) t -> f:('v -> 'w) -> ('k, 'w) t
+    end
+
+    include sig
+      val to_alist : 'k 'v. ('k, 'v) t -> ('k * 'v) list
+    end
+  end
+
+  module type Hashtbl_equality = sig
+    type ('a, 'b) t
+  end
+end
+
+module type Hashtbl = sig
+  include module type of struct
+    include Definitions
+  end
+
+  type (!'a, !'b) t
+
+  include S_without_submodules with type ('k, 'v) t := ('k, 'v) t
+  include Hashtbl_equality with type ('k, 'v) t := ('k, 'v) t
+  include Non_value with type ('k, 'v) t := ('k, 'v) t
+
+  module Creators : functor
+      (Key : sig
+         type 'a t
+
+         val hashable : 'a t Hashable.t
+       end)
+      -> sig
+    type ('a, 'b) t_ = ('a Key.t, 'b) t
+
+    val t_of_sexp : (Sexp.t -> 'a Key.t) -> (Sexp.t -> 'b) -> Sexp.t -> ('a, 'b) t_
+
+    include
+      Creators_generic
+      with type ('a, 'b) t := ('a, 'b) t_
+      with type 'a key := 'a Key.t
+      with type ('key, 'data, 'a) create_options :=
+        ('key, 'data, 'a) create_options_without_first_class_module
+  end
+
+  module Poly : S_poly with type ('a, 'b) t = ('a, 'b) t
+
+  module M : functor (K : T.T) -> sig
+    type nonrec 'v t = (K.t, 'v) t
+  end
+
+  include For_deriving with type ('a, 'b) t := ('a, 'b) t
+
+  module Private : sig
+    module type Creators_generic = Creators_generic
+
+    type nonrec ('key, 'data, 'z) create_options_without_first_class_module =
+      ('key, 'data, 'z) create_options_without_first_class_module
+
+    val hashable : ('key, _) t -> 'key Hashable.t
+  end
+end

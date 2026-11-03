@@ -1,0 +1,378 @@
+open! Import
+open! Stdlib.Int32
+module Bool = Bool0
+module Float = Float0
+module Sexp = Sexp0
+
+module T = struct
+  module T0 = struct
+    type t = int32
+
+    include struct
+      let _ = fun (_ : t) -> ()
+      let globalize : t -> t = globalize_int32
+      let _ = globalize
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        hash_fold_int32
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value = fun x -> hash_int32 x
+
+      let _ = hash_fold_t
+      and _ = hash
+
+      let t_of_sexp = (int32_of_sexp : Sexplib0.Sexp.t -> t)
+      let _ = t_of_sexp
+      let t_sexp_grammar : t Sexplib0.Sexp_grammar.t = int32_sexp_grammar
+      let _ = t_sexp_grammar
+    end [@@merlin.hide]
+
+    let t_u_of_sexp sexp = Int32_u.unbox (t_of_sexp sexp)
+    let to_string = Integer_to_string.int32_to_string
+  end
+
+  include T0
+  include Int_string_conversions.Make (T0)
+  include Provide_unboxed (Int32_u)
+
+  external format : string -> int32 -> string = "caml_int32_format"
+
+  let hashable : t Hashable.t = { hash; compare; sexp_of_t }
+  let compare (x : t) y = compare x y
+
+  external of_string
+    :  string
+    -> (t[@unboxed])
+    = "caml_int32_of_string" "caml_int32_of_string_unboxed"
+
+  let of_string_opt s =
+    try Some (of_string s) with
+    | Failure _ -> None
+  ;;
+end
+
+include T
+include Comparator.Make (T)
+
+let num_bits = 32l
+let float_lower_bound = Float.lower_bound_for_int (to_int num_bits)
+let float_upper_bound = Float.upper_bound_for_int (to_int num_bits)
+
+external float_of_bits
+  :  t
+  -> float
+  = "caml_int32_float_of_bits" "caml_int32_float_of_bits_unboxed"
+[@@unboxed] [@@noalloc]
+
+external bits_of_float
+  :  float
+  -> t
+  = "caml_int32_bits_of_float" "caml_int32_bits_of_float_unboxed"
+[@@unboxed] [@@noalloc]
+
+external shift_right_logical : t -> int -> t = "%int32_lsr"
+external shift_right : t -> int -> t = "%int32_asr"
+external shift_left : t -> int -> t = "%int32_lsl"
+external bit_xor : t -> t -> t = "%int32_xor"
+external bit_or : t -> t -> t = "%int32_or"
+external bit_and : t -> t -> t = "%int32_and"
+
+let bit_not n = bit_xor n (-1l)
+let min_value = min_int
+let max_value = max_int
+let abs = abs
+
+let abs_local n =
+  if let open Int32_replace_polymorphic_compare in
+     n >= 0l
+  then n
+  else neg n
+;;
+
+external ( / ) : t -> t -> t = "%int32_div"
+external ( * ) : t -> t -> t = "%int32_mul"
+external ( - ) : t -> t -> t = "%int32_sub"
+external ( + ) : t -> t -> t = "%int32_add"
+
+let pred n = n - 1l
+let succ n = n + 1l
+
+external rem : t -> t -> t = "%int32_mod"
+external neg : t -> t = "%int32_neg"
+
+let minus_one = minus_one
+let one = one
+let zero = zero
+
+external to_float : int32 -> float = "caml_int32_to_float" "caml_int32_to_float_unboxed"
+[@@unboxed] [@@noalloc]
+
+external of_float_unchecked
+  :  float
+  -> int32
+  = "caml_int32_of_float" "caml_int32_of_float_unboxed"
+[@@unboxed] [@@noalloc]
+
+let of_float f =
+  if Float_replace_polymorphic_compare.( >= ) f float_lower_bound
+     && Float_replace_polymorphic_compare.( <= ) f float_upper_bound
+  then of_float_unchecked f
+  else
+    Printf.invalid_argf
+      "Int32.of_float: argument (%f) is out of range or NaN"
+      (Float.box f)
+      ()
+;;
+
+include Comparable.With_zero (struct
+    include T
+
+    let zero = zero
+  end)
+
+module Compare = struct
+  include Int32_replace_polymorphic_compare
+
+  let ascending = compare
+  let descending x y = compare y x
+  let min x y = Bool.select (x <= y) x y
+  let max x y = Bool.select (x >= y) x y
+  let between t ~low ~high = low <= t && t <= high
+  let clamp_unchecked t ~min:min_ ~max:max_ = max min_ (min t max_)
+
+  let clamp_exn t ~min ~max =
+    assert (min <= max);
+    clamp_unchecked t ~min ~max
+  ;;
+
+  let clamp t ~min ~max =
+    if min > max
+    then
+      Or_error.error_s
+        (Sexp.message
+           "clamp requires [min <= max]"
+           [ "min", T.sexp_of_t min; "max", T.sexp_of_t max ])
+    else Ok (clamp_unchecked t ~min ~max)
+  ;;
+end
+
+include Compare
+
+let invariant (_ : t) = ()
+let ( ~- ) = neg
+let incr r = r := !r + one
+let decr r = r := !r - one
+
+external of_int32 : int32 -> t = "%identity"
+external to_int32 : t -> int32 = "%identity"
+
+let of_int32_exn t = t
+let to_int32_exn t = t
+let of_local_int32_exn t = t
+let to_local_int32_exn t = t
+let popcount = Popcount.int32_popcount
+
+module Conv = Int_conversions
+
+let of_int = Conv.int_to_int32
+let of_local_int_exn = Conv.int_to_int32_exn
+let of_int_exn i = globalize (of_local_int_exn i) [@nontail]
+
+external of_int_trunc : int -> t = "%int32_of_int"
+
+let to_int = Conv.int32_to_int
+let to_int_exn = Conv.int32_to_int_exn
+let to_int_trunc = Conv.int32_to_int_trunc
+let of_int64 = Conv.int64_to_int32
+let of_local_int64_exn i = Conv.int64_to_int32_exn i
+let of_int64_exn i = globalize (of_local_int64_exn i) [@nontail]
+
+external of_int64_trunc : int64 -> t = "%int64_to_int32"
+
+let to_int64 = Conv.int32_to_int64
+let to_local_int64 = Conv.int32_to_int64
+let of_nativeint = Conv.nativeint_to_int32
+let of_local_nativeint_exn = Conv.nativeint_to_int32_exn
+let of_nativeint_exn i = globalize (of_local_nativeint_exn i) [@nontail]
+
+external of_nativeint_trunc : nativeint -> t = "%nativeint_to_int32"
+external to_nativeint : t -> nativeint = "%nativeint_of_int32"
+
+let to_nativeint_exn = to_nativeint
+let to_local_nativeint_exn = to_nativeint
+let pow b e = of_int_exn (Int_math.Private.int_pow (to_int_exn b) (to_int_exn e))
+let ( ** ) b e = pow b e
+
+external bswap32 : t -> t = "%bswap_int32"
+
+let bswap16 x = shift_right_logical (bswap32 x) 16
+
+module Pre_O = struct
+  let ( + ) = ( + )
+  let ( - ) = ( - )
+  let ( * ) = ( * )
+  let ( / ) = ( / )
+  let ( ~- ) = ( ~- )
+  let ( ** ) = ( ** )
+
+  include Compare
+
+  let abs = abs
+  let abs_local = abs_local
+  let neg = neg
+  let zero = zero
+  let of_int_exn = of_int_exn
+end
+
+module O = struct
+  include Pre_O
+
+  include Int_math.Make (struct
+      type nonrec t = t
+
+      let globalize = globalize
+
+      include Pre_O
+
+      let rem = rem
+      let to_float = to_float
+      let of_float = of_float
+      let of_string = T.of_string
+      let to_string = T.to_string
+    end)
+
+  let ( land ) = bit_and
+  let ( lor ) = bit_or
+  let ( lxor ) = bit_xor
+  let lnot = bit_not
+  let ( lsl ) = shift_left
+  let ( asr ) = shift_right
+  let ( lsr ) = shift_right_logical
+end
+
+include O
+
+module Pow2 = struct
+  open O
+
+  let non_positive_argument () = invalid_arg "argument must be strictly positive"
+
+  let ceil_pow2 x =
+    if x <= 0l then non_positive_argument ();
+    let x = x - 1l in
+    let x = x lor (x lsr 1) in
+    let x = x lor (x lsr 2) in
+    let x = x lor (x lsr 4) in
+    let x = x lor (x lsr 8) in
+    let x = x lor (x lsr 16) in
+    x + 1l
+  ;;
+
+  let floor_pow2 x =
+    if x <= 0l then non_positive_argument ();
+    let x = x lor (x lsr 1) in
+    let x = x lor (x lsr 2) in
+    let x = x lor (x lsr 4) in
+    let x = x lor (x lsr 8) in
+    let x = x lor (x lsr 16) in
+    x - (x lsr 1)
+  ;;
+
+  let is_pow2 x =
+    if x <= 0l then non_positive_argument ();
+    x land (x - 1l) = 0l
+  ;;
+
+  let clz = Ocaml_intrinsics_kernel.Int32.count_leading_zeros
+  let ctz = Ocaml_intrinsics_kernel.Int32.count_trailing_zeros
+
+  let floor_log2 i =
+    if i <= 0l then invalid_arg ("Int32.floor_log2: " ^ to_string i);
+    num_bits - 1l - clz i
+  ;;
+
+  let ceil_log2 i =
+    if i <= 0l then invalid_arg ("Int32.ceil_log2: " ^ to_string i);
+    if i = 1l
+    then 0l
+    else (
+      let i = i - 1l in
+      num_bits - clz i)
+  ;;
+end
+
+include Pow2
+include Int_string_conversions.Make (T)
+
+include Int_string_conversions.Make_hex (struct
+    type t = int32
+
+    include struct
+      let _ = fun (_ : t) -> ()
+      let compare = (compare_int32 : t -> (t[@merlin.hide]) -> int)
+      let _ = compare
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        hash_fold_int32
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value = fun x -> hash_int32 x
+
+      let _ = hash_fold_t
+      and _ = hash
+    end [@@merlin.hide]
+
+    let zero = zero
+
+    external neg : t -> t = "%int32_neg"
+
+    let ( < ) = ( < )
+    let to_string i = format "%lx" i
+    let of_string s = Stdlib.Scanf.sscanf s "%lx" Fn.id
+    let module_name = "Base.Int32.Hex"
+  end)
+
+include Int_string_conversions.Make_binary (struct
+    type t = int32
+
+    include struct
+      let _ = fun (_ : t) -> ()
+      let compare = (compare_int32 : t -> (t[@merlin.hide]) -> int)
+      let _ = compare
+      let equal = (equal_int32 : t -> (t[@merlin.hide]) -> bool)
+      let _ = equal
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        hash_fold_int32
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value = fun x -> hash_int32 x
+
+      let _ = hash_fold_t
+      and _ = hash
+    end [@@merlin.hide]
+
+    let ( land ) = ( land )
+
+    external ( lsr ) : t -> int -> t = "%int32_lsr"
+
+    let clz = clz
+    let num_bits = num_bits
+    let one = one
+    let to_int_trunc = to_int_trunc
+    let zero = zero
+    let ( - ) = ( - )
+  end)
+
+include Pretty_printer.Register (struct
+    type nonrec t = t
+
+    let to_string = to_string
+    let module_name = "Base.Int32"
+  end)
+
+module Summable = struct
+  type nonrec t = t
+
+  let zero = zero
+  let ( + ) x y = x + y
+  let ( - ) x y = x - y
+end
