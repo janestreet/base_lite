@@ -1,0 +1,311 @@
+open! Import
+module Float = Float0
+module Sexp = Sexp0
+module Sign = Sign0
+include Int_intf.Definitions
+include Int0
+
+module T = struct
+  module T0 = struct
+    type t = int
+
+    include struct
+      let _ = fun (_ : t) -> ()
+      let globalize : t -> t = globalize_int
+      let _ = globalize
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        hash_fold_int
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value = fun x -> hash_int x
+
+      let _ = hash_fold_t
+      and _ = hash
+
+      let t_of_sexp = (int_of_sexp : Sexplib0.Sexp.t -> t)
+      let _ = t_of_sexp
+      let t_sexp_grammar : t Sexplib0.Sexp_grammar.t = int_sexp_grammar
+      let _ = t_sexp_grammar
+    end [@@merlin.hide]
+
+    let to_string = Integer_to_string.int_to_string
+  end
+
+  include T0
+  include Int_string_conversions.Make (T0)
+
+  let compare x y = Int_replace_polymorphic_compare.compare x y
+  let hashable : t Hashable.t = { hash; compare; sexp_of_t }
+
+  let of_string s =
+    try of_string s with
+    | _ -> Printf.failwithf "Int.of_string: %S" (globalize_string s) ()
+  ;;
+end
+
+let num_bits = Int_conversions.num_bits_int
+let float_lower_bound = Float.lower_bound_for_int num_bits
+let float_upper_bound = Float.upper_bound_for_int num_bits
+let to_float = (Stdlib.float_of_int :> int -> _)
+let of_float_unchecked = Stdlib.int_of_float
+
+let of_float f =
+  if Float_replace_polymorphic_compare.( >= ) f float_lower_bound
+     && Float_replace_polymorphic_compare.( <= ) f float_upper_bound
+  then Stdlib.int_of_float f
+  else
+    Printf.invalid_argf
+      "Int.of_float: argument (%f) is out of range or NaN"
+      (Float.box f)
+      ()
+;;
+
+let zero = 0
+let one = 1
+let minus_one = -1
+
+include T
+include Comparator.Make (T)
+
+include Comparable.With_zero (struct
+    include T
+
+    let zero = zero
+  end)
+
+module Conv = Int_conversions
+include Int_string_conversions.Make (T)
+
+include Int_string_conversions.Make_hex (struct
+    open Int_replace_polymorphic_compare
+
+    type t = int
+
+    include struct
+      let _ = fun (_ : t) -> ()
+      let compare = (compare_int : t -> (t[@merlin.hide]) -> int)
+      let _ = compare
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        hash_fold_int
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value = fun x -> hash_int x
+
+      let _ = hash_fold_t
+      and _ = hash
+    end [@@merlin.hide]
+
+    let zero = zero
+
+    external neg : t -> t = "%negint"
+
+    let ( < ) = ( < )
+    let to_string i = format "%x" i
+    let of_string s = Stdlib.Scanf.sscanf s "%x" Fn.id
+    let module_name = "Base.Int.Hex"
+  end)
+
+include Pretty_printer.Register (struct
+    type nonrec t = t
+
+    let to_string = to_string
+    let module_name = "Base.Int"
+  end)
+
+open! Int_replace_polymorphic_compare
+
+let invariant (_ : t) = ()
+let between t ~low ~high = low <= t && t <= high
+let clamp_unchecked t ~min:min_ ~max:max_ = max min_ (min t max_)
+
+let clamp_exn t ~min ~max =
+  assert (min <= max);
+  clamp_unchecked t ~min ~max
+;;
+
+let clamp t ~min ~max =
+  if min > max
+  then
+    Or_error.error_s
+      (Sexp.message
+         "clamp requires [min <= max]"
+         [ "min", T.sexp_of_t min; "max", T.sexp_of_t max ])
+  else Ok (clamp_unchecked t ~min ~max)
+;;
+
+external to_int32_trunc : t -> int32 = "%int32_of_int"
+external of_int32_trunc : int32 -> t = "%int32_to_int"
+external of_int64_trunc : int64 -> t = "%int64_to_int"
+external of_nativeint_trunc : nativeint -> t = "%nativeint_to_int"
+
+let pred i = i - 1
+let succ i = i + 1
+let to_int i = i
+let to_int_exn i = to_int i
+let of_int i = i
+let of_int_exn i = of_int i
+let max_value = Stdlib.max_int
+let min_value = Stdlib.min_int
+let max_value_30_bits = 0x3FFF_FFFF
+let of_int32 = Conv.int32_to_int
+let of_int32_exn = Conv.int32_to_int_exn
+let of_local_int32_exn = Conv.int32_to_int_exn
+let to_int32 = Conv.int_to_int32
+let to_local_int32_exn = Conv.int_to_int32_exn
+let to_int32_exn i = globalize_int32 (to_local_int32_exn i) [@nontail]
+let of_int64 = Conv.int64_to_int
+let of_int64_exn = Conv.int64_to_int_exn
+let of_local_int64_exn = Conv.int64_to_int_exn
+let to_int64 = Conv.int_to_int64
+let to_local_int64 = Conv.int_to_int64
+let of_nativeint = Conv.nativeint_to_int
+let of_nativeint_exn = Conv.nativeint_to_int_exn
+let of_local_nativeint_exn = Conv.nativeint_to_int_exn
+
+external to_nativeint : int -> nativeint = "%nativeint_of_int"
+
+let to_nativeint_exn = to_nativeint
+let to_local_nativeint_exn = to_nativeint
+let abs x = abs x
+let abs_local = (abs : int -> int)
+let rem a b = a mod b
+let incr = Stdlib.incr
+let decr = Stdlib.decr
+let shift_right a b = a asr b
+let shift_right_logical a b = a lsr b
+let shift_left a b = a lsl b
+let bit_not a = lnot a
+let bit_or a b = a lor b
+let bit_and a b = a land b
+let bit_xor a b = a lxor b
+let pow = Int_math.Private.int_pow
+let ( ** ) b e = pow b e
+let sign = Sign.of_int
+let popcount = Popcount.int_popcount
+
+include Int_string_conversions.Make_binary (struct
+    type t = int
+
+    include struct
+      let _ = fun (_ : t) -> ()
+      let compare = (compare_int : t -> (t[@merlin.hide]) -> int)
+      let _ = compare
+      let equal = (equal_int : t -> (t[@merlin.hide]) -> bool)
+      let _ = equal
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        hash_fold_int
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value = fun x -> hash_int x
+
+      let _ = hash_fold_t
+      and _ = hash
+    end [@@merlin.hide]
+
+    let ( land ) = ( land )
+
+    external ( lsr ) : t -> int -> t = "%lsrint"
+
+    let clz = clz
+    let num_bits = num_bits
+    let one = one
+    let to_int_trunc (i : t) = i
+    let zero = zero
+    let ( - ) = ( - )
+  end)
+
+module Pre_O = struct
+  external ( + ) : t -> t -> t = "%addint"
+  external ( - ) : t -> t -> t = "%subint"
+  external ( * ) : t -> t -> t = "%mulint"
+  external ( / ) : t -> t -> t = "%divint"
+  external ( ~- ) : t -> t = "%negint"
+
+  let ( ** ) = ( ** )
+
+  include Int_replace_polymorphic_compare
+
+  let abs = abs
+  let abs_local = abs_local
+
+  external neg : t -> t = "%negint"
+
+  let zero = zero
+  let of_int_exn i = of_int_exn i
+end
+
+module O = struct
+  include Pre_O
+
+  module F = Int_math.Make (struct
+      type nonrec t = t
+
+      let globalize = globalize
+
+      include Pre_O
+
+      let rem = rem
+      let to_float = to_float
+      let of_float = of_float
+      let of_string = T.of_string
+      let to_string = T.to_string
+    end)
+
+  include F
+
+  external bswap16 : int -> int = "%bswap16"
+  external unsafe_div : int -> int -> int = "%divint"
+
+  let ( % ) x y =
+    if y <= zero
+    then
+      Printf.invalid_argf
+        "%s %% %s in core_int.ml: modulus should be positive"
+        (to_string x)
+        (to_string y)
+        ();
+    let rval = rem x y in
+    if rval < zero then rval + y else rval
+  ;;
+
+  let ( /% ) x y =
+    if y <= zero
+    then
+      Printf.invalid_argf
+        "%s /%% %s in core_int.ml: divisor should be positive"
+        (to_string x)
+        (to_string y)
+        ()
+    else (
+      let offset = bool_to_int (x < zero) in
+      unsafe_div (x + offset) y - offset)
+  ;;
+
+  let ( // ) x y = to_float x /. to_float y
+
+  external ( land ) : int -> int -> int = "%andint"
+  external ( lor ) : int -> int -> int = "%orint"
+  external ( lxor ) : int -> int -> int = "%xorint"
+
+  let lnot x = x lxor -1
+
+  external ( lsl ) : int -> int -> int = "%lslint"
+  external ( lsr ) : int -> int -> int = "%lsrint"
+  external ( asr ) : int -> int -> int = "%asrint"
+end
+
+include O
+
+module Summable = struct
+  type nonrec t = t
+
+  let zero = zero
+  let ( + ) x y = x + y
+  let ( - ) x y = x - y
+end
+
+module Private = struct
+  module O_F = O.F
+end
+
+include Int_replace_polymorphic_compare

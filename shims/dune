@@ -1,0 +1,6 @@
+(library
+ (name base_lite_shims)
+ (public_name base_lite.shims)
+ (libraries basement ocaml_intrinsics_kernel ppx_hash.runtime-lib sexplib0
+   base.shadow_stdlib)
+ (preprocess no_preprocessing))

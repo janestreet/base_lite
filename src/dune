@@ -1,0 +1,12 @@
+(library
+ (name base_lite)
+ (public_name base_lite)
+ (flags
+  (:standard -open Base_lite_shims)
+  -w
+  -32-60)
+ (libraries base_lite_shims base_stubs basement capsule0.prim
+   nonempty_list_type ocaml_intrinsics_kernel ppx_compare.runtime-lib
+   ppx_enumerate.runtime-lib ppx_hash.runtime-lib ppx_sexp_conv.runtime-lib
+   sexplib0 base.shadow_stdlib)
+ (preprocess no_preprocessing))

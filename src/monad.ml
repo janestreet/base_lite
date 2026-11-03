@@ -1,0 +1,227 @@
+open! Import
+include Monad_intf.Definitions
+
+let list_rev list =
+  let rec loop acc = function
+    | [] -> acc
+    | x :: xs -> loop (x :: acc) xs
+  in
+  loop [] list
+;;
+
+module Make3_indexed (M : Basic3_indexed) :
+  S3_indexed with type ('a, 'i, 'j, 'p, 'q) t := ('a, 'i, 'j, 'p, 'q) M.t = struct
+  let bind = M.bind
+  let return = M.return
+  let map_via_bind ma ~f = M.bind ma ~f:(fun a -> M.return (f a)) [@nontail]
+
+  let map =
+    match M.map with
+    | `Define_using_bind -> map_via_bind
+    | `Custom x -> x
+  ;;
+
+  module Monad_infix = struct
+    let ( >>= ) t f = bind t ~f
+    let ( >>| ) t f = map t ~f
+  end
+
+  include Monad_infix
+
+  module Let_syntax = struct
+    let return = return
+
+    include Monad_infix
+
+    module Let_syntax = struct
+      let return = return
+      let bind = bind
+      let map = map
+      let both a b = bind a ~f:(fun a -> map b ~f:(fun b -> a, b) [@nontail]) [@nontail]
+
+      module Open_on_rhs = struct end
+    end
+  end
+
+  let join t = t >>= Fn.id
+  let ignore_m t = map t ~f:ignore
+
+  let all =
+    let rec loop vs = function
+      | [] -> return (list_rev vs)
+      | t :: ts -> t >>= fun v -> loop (v :: vs) ts
+    in
+    fun ts -> loop [] ts
+  ;;
+
+  let rec all_unit = function
+    | [] -> return ()
+    | t :: ts -> t >>= fun () -> all_unit ts
+  ;;
+end
+
+module Make_indexed (M : Basic_indexed) :
+  S_indexed with type ('a, 'i, 'j) t := ('a, 'i, 'j) M.t = Make3_indexed (struct
+    include M
+
+    type ('a, 'i, 'j, _, _) t = ('a, 'i, 'j) M.t
+  end)
+
+module Make3 (M : Basic3) : S3 with type ('a, 'p, 'q) t := ('a, 'p, 'q) M.t =
+Make3_indexed (struct
+    include M
+
+    type ('a, _, _, 'p, 'q) t = ('a, 'p, 'q) M.t
+  end)
+
+module Make2 (M : Basic2) : S2 with type ('a, 'p) t := ('a, 'p) M.t =
+Make3_indexed (struct
+    include M
+
+    type ('a, _, _, 'p, _) t = ('a, 'p) M.t
+  end)
+
+module Make (M : Basic) : S with type 'a t := 'a M.t = Make3_indexed (struct
+    include M
+
+    type ('a, _, _, _, _) t = 'a M.t
+  end)
+
+module Of_monad3_indexed
+    (Monad : S3_indexed)
+    (M : sig
+       type ('a, 'i, 'j, 'p, 'q) t
+
+       val to_monad
+         : 'a 'i 'j 'p 'q.
+         ('a, 'i, 'j, 'p, 'q) t -> ('a, 'i, 'j, 'p, 'q) Monad.t
+
+       val of_monad
+         : 'a 'i 'j 'p 'q.
+         ('a, 'i, 'j, 'p, 'q) Monad.t -> ('a, 'i, 'j, 'p, 'q) t
+     end) : S3_indexed with type ('a, 'i, 'j, 'p, 'q) t := ('a, 'i, 'j, 'p, 'q) M.t =
+Make3_indexed (struct
+    type ('a, 'i, 'j, 'p, 'q) t = ('a, 'i, 'j, 'p, 'q) M.t
+
+    let return a = M.of_monad (Monad.return a)
+    let bind t ~f = M.of_monad (Monad.bind (M.to_monad t) ~f:(fun a -> M.to_monad (f a)))
+    let map = `Custom (fun t ~f -> M.of_monad (Monad.map (M.to_monad t) ~f))
+  end)
+
+module Of_monad_indexed
+    (Monad : S_indexed)
+    (M : sig
+       type ('a, 'i, 'j) t
+
+       val to_monad : 'a 'i 'j. ('a, 'i, 'j) t -> ('a, 'i, 'j) Monad.t
+       val of_monad : 'a 'i 'j. ('a, 'i, 'j) Monad.t -> ('a, 'i, 'j) t
+     end) : S_indexed with type ('a, 'i, 'j) t := ('a, 'i, 'j) M.t =
+  Of_monad3_indexed
+    (struct
+      include Monad
+
+      type ('a, 'i, 'j, _, _) t = ('a, 'i, 'j) Monad.t
+    end)
+    (struct
+      include M
+
+      type ('a, 'i, 'j, _, _) t = ('a, 'i, 'j) M.t
+    end)
+
+module Of_monad3
+    (Monad : S3)
+    (M : sig
+       type ('a, 'p, 'q) t
+
+       val to_monad : 'a 'p 'q. ('a, 'p, 'q) t -> ('a, 'p, 'q) Monad.t
+       val of_monad : 'a 'p 'q. ('a, 'p, 'q) Monad.t -> ('a, 'p, 'q) t
+     end) : S3 with type ('a, 'p, 'q) t := ('a, 'p, 'q) M.t =
+  Of_monad3_indexed
+    (struct
+      include Monad
+
+      type ('a, _, _, 'p, 'q) t = ('a, 'p, 'q) Monad.t
+    end)
+    (struct
+      include M
+
+      type ('a, _, _, 'p, 'q) t = ('a, 'p, 'q) M.t
+    end)
+
+module Of_monad2
+    (Monad : S2)
+    (M : sig
+       type ('a, 'p) t
+
+       val to_monad : 'a 'p. ('a, 'p) t -> ('a, 'p) Monad.t
+       val of_monad : 'a 'p. ('a, 'p) Monad.t -> ('a, 'p) t
+     end) : S2 with type ('a, 'p) t := ('a, 'p) M.t =
+  Of_monad3_indexed
+    (struct
+      include Monad
+
+      type ('a, _, _, 'p, _) t = ('a, 'p) Monad.t
+    end)
+    (struct
+      include M
+
+      type ('a, _, _, 'p, _) t = ('a, 'p) M.t
+    end)
+
+module Of_monad
+    (Monad : S)
+    (M : sig
+       type 'a t
+
+       val to_monad : 'a. 'a t -> 'a Monad.t
+       val of_monad : 'a. 'a Monad.t -> 'a t
+     end) : S with type 'a t := 'a M.t =
+  Of_monad3_indexed
+    (struct
+      include Monad
+
+      type ('a, _, _, _, _) t = 'a Monad.t
+    end)
+    (struct
+      include M
+
+      type ('a, _, _, _, _) t = 'a M.t
+    end)
+
+module Ident = struct
+  type 'a t = 'a
+
+  let bind a ~f = f a
+  let map a ~f = f a
+
+  external return : 'a. 'a -> 'a = "%identity"
+
+  module Monad_infix = struct
+    let ( >>| ) a f = map a ~f
+    let ( >>= ) a f = bind a ~f
+  end
+
+  include Monad_infix
+
+  module Let_syntax = struct
+    let return = return
+
+    include Monad_infix
+
+    module Let_syntax = struct
+      let return = return
+      let bind = bind
+      let map = map
+      let both a b = a, b
+
+      module Open_on_rhs = struct end
+    end
+
+    let return = return
+  end
+
+  external join : 'a. 'a -> 'a = "%identity"
+  external ignore_m : 'a. 'a -> unit = "%ignore"
+  external all_unit : unit list -> unit = "%ignore"
+  external all : 'a. 'a list -> 'a list = "%identity"
+end
